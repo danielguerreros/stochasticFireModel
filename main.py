@@ -148,7 +148,7 @@ if __name__ == "__main__":
         ignition_site=(25, 25)
     )
 
-    final_time, steps = sim.run()
+    final_time, steps = sim.run(max_steps=100)
 
     print("Simulation finished")
     print("Final time:", final_time)
@@ -162,5 +162,5 @@ if __name__ == "__main__":
     print("Burnt out:", state_counts.get(OUT, 0))
     # after running your simulation
     make_fire_gif(sim.history[::5], gif_path="fire_spread.gif")
-    plot_final_fire(sim.grid)
+    # plot_final_fire(sim.grid)
     
