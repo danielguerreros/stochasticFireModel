@@ -71,12 +71,13 @@ OUT = 2      # O
 
 
 class FireSimulator:
-    def __init__(self, n, m, lam, lam_o, ignition_site):
+    def __init__(self, n, m, lam, lam_o, ignition_site, neighbourhood):
         """
         n, m         : grid size
         lam          : fire spread rate (λ)
         lam_o        : burnout rate (λ_o)
         ignition_site: tuple (i, j)
+        neighbourhood: type or neighbourhood, von neumann (4 neighbors) or moore (8 neighbors)
         """
         self.n = n
         self.m = m
@@ -88,13 +89,34 @@ class FireSimulator:
 
         self.time = 0.0
         self.history = [(self.time, self.grid.copy())]
+        self.neighbourhood = neighbourhood
 
     def neighbors(self, i, j):
-        """Return valid N,S,E,W neighbors"""
-        for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        if self.neighbourhood == "von_neumann":
+            directions = [
+                (-1, 0, self.lam),
+                (1, 0, self.lam),
+                (0, -1, self.lam),
+                (0, 1, self.lam),
+            ]
+
+        elif self.neighbourhood == "moore":
+            lam_diag = self.lam / np.sqrt(2)
+            directions = [
+                (-1, 0, self.lam),
+                (1, 0, self.lam),
+                (0, -1, self.lam),
+                (0, 1, self.lam),
+                (-1, -1, lam_diag),
+                (-1,  1, lam_diag),
+                ( 1, -1, lam_diag),
+                ( 1,  1, lam_diag),
+            ]
+
+        for di, dj, rate in directions:
             ni, nj = i + di, j + dj
             if 0 <= ni < self.n and 0 <= nj < self.m:
-                yield ni, nj
+                yield ni, nj, rate
 
     def step(self):
         """Perform one discrete event"""
@@ -104,28 +126,42 @@ class FireSimulator:
         if N == 0:
             return False  # simulation ends
 
-        # Total event rate
-        total_rate = N * (4 * self.lam + self.lam_o)
+        events = []
+        rates = []
+
+        for i, j in burning_sites:
+            # Burnout event
+            rate_o = self.lam_o
+            events.append(("burnout", i, j))
+            rates.append(rate_o)
+
+            # Spread events
+            for ni, nj, rate in self.neighbors(i, j):
+                if self.grid[ni, nj] == FUEL:
+                    events.append(("spread", i, j, ni, nj))
+                    rates.append(rate)
+
+        total_rate = sum(rates)
+        if total_rate == 0:
+            return False
+    
+        #total_rate = N * (4 * self.lam + self.lam_o)
 
         # Time to next event
-        T = np.random.exponential(1 / total_rate)
-        self.time += T
+        dt = np.random.exponential(1 / total_rate)
+        self.time += dt
 
-        # Choose burning site
-        site = random.choice(burning_sites)
-        i, j = site
-
-        # Decide event type
-        p_burnout = self.lam_o / (4 * self.lam + self.lam_o)
-
-        if random.random() < p_burnout:
-            # Burnout event
+        # Choose event
+        event = random.choices(events, weights=rates, k=1)[0]
+        
+        if event[0] == "burnout":
+            _, i, j = event
             self.grid[i, j] = OUT
-        else:
-            # Spread event
-            ni, nj = random.choice(list(self.neighbors(i, j)))
-            if self.grid[ni, nj] == FUEL:
-                self.grid[ni, nj] = BURNING
+
+        elif event[0] == "spread":
+            _, i, j, ni, nj = event
+            self.grid[ni, nj] = BURNING
+
         self.history.append((self.time, self.grid.copy()))
         return True
 
@@ -145,7 +181,8 @@ if __name__ == "__main__":
         m=50,
         lam=5/100,# 5 m/min / 100m,
         lam_o= 1/240, # 1/120 min,
-        ignition_site=(25, 25)
+        ignition_site=(25, 25),
+        neighbourhood='von_neumann'
     )
 
     final_time, steps = sim.run(max_steps=100)
@@ -161,6 +198,6 @@ if __name__ == "__main__":
     print("Burning:", state_counts.get(BURNING, 0))
     print("Burnt out:", state_counts.get(OUT, 0))
     # after running your simulation
-    make_fire_gif(sim.history[::5], gif_path="fire_spread.gif")
+    make_fire_gif(sim.history, gif_path="fire_spread.gif")
     # plot_final_fire(sim.grid)
     
